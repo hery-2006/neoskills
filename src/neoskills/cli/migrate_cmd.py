@@ -132,7 +132,7 @@ def migrate(root: str | None, tap_name: str, dry_run: bool) -> None:
     # Step 3: Update config.yaml
     if not dry_run:
         config = cellar.load_config()
-        config["version"] = "0.3.0"
+        config["version"] = "0.3.1"
         config["default_tap"] = tap_name
         config["default_target"] = config.pop("default_target", "claude-code-user").replace("-user", "")
         config.setdefault("targets", {

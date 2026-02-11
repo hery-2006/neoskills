@@ -1,6 +1,6 @@
 [project]
 name = "neoskills"
-version = "0.3.0"
+version = "0.3.1"
 description = "Homebrew-style skill manager for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -64,4 +64,5 @@ line-length = 100
 dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.0",
+    "twine>=6.2.0",
 ]
