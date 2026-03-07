@@ -11,11 +11,14 @@ from neoskills.core.tap import TapManager
 @click.command("list")
 @click.option("--linked", is_flag=True, help="Show only linked skills.")
 @click.option("--available", is_flag=True, help="Show all skills in default tap.")
+@click.option("--scope", "scope_filter", default=None,
+              type=click.Choice(["user", "project", "plugin"], case_sensitive=False),
+              help="Filter by scope.")
 @click.option("--target", default=None, help="Target agent.")
 @click.option("--tap", "tap_name", default=None, help="Tap to list from.")
 @click.option("--root", default=None, type=click.Path(), help="Workspace root.")
 def list_skills(
-    linked: bool, available: bool, target: str | None, tap_name: str | None, root: str | None
+    linked: bool, available: bool, scope_filter: str | None, target: str | None, tap_name: str | None, root: str | None
 ) -> None:
     """List installed and/or linked skills."""
     from pathlib import Path
@@ -23,6 +26,19 @@ def list_skills(
     cellar = Cellar(Path(root) if root else None)
     mgr = TapManager(cellar)
     linker = Linker(cellar)
+
+    if scope_filter:
+        from neoskills.core.index import SkillIndex
+        from neoskills.core.manifest import Scope
+
+        index = SkillIndex(cellar, mgr)
+        scope = Scope(scope_filter)
+        manifests = index.scan(scopes=[scope])
+        click.echo(f"Skills ({scope_filter} scope, {len(manifests)} found):")
+        for m in manifests:
+            type_tag = f" [{m.type.value}]" if m.type.value != "regular" else ""
+            click.echo(f"  {m.spec.skill_id:40s}{type_tag}")
+        return
 
     if linked:
         links = linker.list_links(target)
@@ -115,3 +131,15 @@ def info(skill_id: str, root: str | None) -> None:
         click.echo(f"Linked:      yes → {link_info['source']}")
     else:
         click.echo("Linked:      no")
+
+    # Show manifest info if metadata.yaml exists
+    from neoskills.core.manifest import SkillManifest
+    manifest = SkillManifest.from_skill_dir(skill_path)
+    if manifest.type.value != "regular":
+        click.echo(f"Type:        {manifest.type.value}")
+    if manifest.depends_on.skills:
+        click.echo(f"Depends on:  {', '.join(manifest.depends_on.skills)}")
+    if manifest.depends_on.agent:
+        click.echo(f"Agent:       {manifest.depends_on.agent}")
+    if manifest.depends_on.packages:
+        click.echo(f"Packages:    {', '.join(manifest.depends_on.packages)}")
