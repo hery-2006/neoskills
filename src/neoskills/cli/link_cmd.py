@@ -36,6 +36,34 @@ def link(skill_id: str | None, link_all: bool, target: str | None, root: str | N
         click.echo(f"Skill '{skill_id}' not found in any tap.")
         raise SystemExit(1)
 
+    # Check dependencies
+    from neoskills.core.index import SkillIndex
+    from neoskills.core.manifest import SkillManifest
+    from neoskills.core.resolver import CyclicDependencyError, Resolver
+
+    index = SkillIndex(cellar, mgr)
+    resolver = Resolver(index, linker)
+
+    try:
+        manifest = SkillManifest.from_skill_dir(skill_path)
+    except Exception:
+        manifest = None
+
+    if manifest and manifest.depends_on.skills:
+        try:
+            result = resolver.resolve(manifest, target or "claude-code")
+            if result.unresolved_skills:
+                click.echo(f"Warning: unresolved deps: {', '.join(result.unresolved_skills)}")
+            for dep_manifest in result.install_order[:-1]:
+                dep_path = dep_manifest.spec.path
+                if dep_path:
+                    dep_action = linker.link(dep_manifest.spec.skill_id, dep_path, target)
+                    if dep_action.action == "linked":
+                        click.echo(f"  Auto-linked dependency: {dep_manifest.spec.skill_id}")
+        except CyclicDependencyError as e:
+            click.echo(f"Error: {e}")
+            raise SystemExit(1)
+
     action = linker.link(skill_id, skill_path, target)
     click.echo(f"{skill_id}: {action.action}")
 
