@@ -59,6 +59,35 @@ def brew_install(skill_id: str, from_tap: str | None, target: str | None, root: 
             click.echo(f"Skill '{skill_id}' not found in any tap.")
             raise SystemExit(1)
 
+    # Resolve dependencies before linking
+    from neoskills.core.index import SkillIndex
+    from neoskills.core.manifest import SkillManifest
+    from neoskills.core.resolver import CyclicDependencyError, Resolver
+
+    index = SkillIndex(cellar, mgr)
+    resolver = Resolver(index, linker)
+
+    try:
+        manifest = SkillManifest.from_skill_dir(skill_path)
+    except Exception:
+        manifest = None
+
+    if manifest and manifest.depends_on.skills:
+        try:
+            result = resolver.resolve(manifest, target or "claude-code")
+            if result.unresolved_skills:
+                click.echo(f"Warning: unresolved deps: {', '.join(result.unresolved_skills)}")
+            # Auto-link dependency skills (skip the skill itself — it's linked below)
+            for dep_manifest in result.install_order[:-1]:
+                dep_path = dep_manifest.spec.path
+                if dep_path:
+                    dep_action = linker.link(dep_manifest.spec.skill_id, dep_path, target)
+                    if dep_action.action == "linked":
+                        click.echo(f"  Auto-linked dependency: {dep_manifest.spec.skill_id}")
+        except CyclicDependencyError as e:
+            click.echo(f"Error: {e}")
+            raise SystemExit(1)
+
     # Link to target
     action = linker.link(skill_id, skill_path, target)
     if action.action == "linked":
@@ -80,6 +109,19 @@ def uninstall(skill_id: str, target: str | None, keep: bool, root: str | None) -
 
     cellar = Cellar(Path(root) if root else None)
     linker = Linker(cellar)
+
+    # Check if other skills depend on this one
+    from neoskills.core.index import SkillIndex
+    from neoskills.core.tap import TapManager
+
+    mgr = TapManager(cellar)
+    index = SkillIndex(cellar, mgr)
+    dependents = []
+    for m in index.scan():
+        if skill_id in m.depends_on.skills:
+            dependents.append(m.spec.skill_id)
+    if dependents:
+        click.echo(f"Warning: these skills depend on {skill_id}: {', '.join(dependents)}")
 
     # Unlink from target
     action = linker.unlink(skill_id, target)
