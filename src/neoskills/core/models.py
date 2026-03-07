@@ -53,19 +53,6 @@ class Skill:
 
 
 @dataclass
-class Provenance:
-    """Tracks where a skill came from."""
-
-    skill_id: str
-    source_type: str  # "target", "git", "web", "manual"
-    source_location: str  # path, URL, etc.
-    source_target: str = ""  # target ID if from a target
-    imported_at: datetime = field(default_factory=datetime.now)
-    original_checksum: str = ""
-    notes: str = ""
-
-
-@dataclass
 class Target:
     """A deployment target (agent instance)."""
 
@@ -77,18 +64,6 @@ class Target:
     writable: bool = True
     transport: TransportType = TransportType.LOCAL_FS
     extra: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class Bundle:
-    """A named collection of skills."""
-
-    bundle_id: str
-    name: str
-    description: str = ""
-    skill_ids: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.now)
-    tags: list[str] = field(default_factory=list)
 
 
 # --- v0.3 Brew-style models ---
