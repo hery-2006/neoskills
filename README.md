@@ -1,21 +1,32 @@
 # neoskills
 
-**Cross-Agent Skill Bank & Transfer System**
+[![PyPI version](https://img.shields.io/pypi/v/neoskills.svg)](https://pypi.org/project/neoskills/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/neolaf2/neoskills/actions/workflows/ci.yml/badge.svg)](https://github.com/neolaf2/neoskills/actions/workflows/ci.yml)
 
-neoskills manages **skills as the common denominator** across multiple agent ecosystems (Claude Code, OpenCode, OpenClaw). It maintains a canonical, portable master skill bank that you can browse in one place, sync to GitHub, and deploy selectively to different agents via symlinks — like Homebrew for AI skills.
+**Homebrew-style skill manager for AI coding agents.**
 
-## Features
+neoskills manages portable skill definitions across agent ecosystems (Claude Code, OpenCode, OpenClaw). Browse skills in one place, sync to GitHub, deploy selectively via symlinks, and discover relationships through a built-in ontology graph.
 
-- **Homebrew-style skill management** — `tap`, `install`, `link`, `update` for skills
-- **Tap repositories** — git-cloned skill sources, searchable across all taps
-- **Symlink-based deployment** — zero-copy, reversible projection into agent skill directories
-- **Multi-agent targets** — Claude Code, OpenCode, OpenClaw, and custom targets
-- **Ontology layer** — property graph over skills for discovery, dependency analysis, lifecycle governance, composition, and versioning (v0.4)
-- **Claude-powered enhancement** — normalize, audit, enrich ontology metadata
-- **Plugin mode** — runs inside Claude Code as an embedded MCP plugin
-- **Git sync** — version control your skill bank and push/pull to GitHub
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [Ontology Layer](#ontology-layer)
+- [Agent Targets](#agent-targets)
+- [Operating Modes](#operating-modes)
+- [CLI Reference](#cli-reference)
+- [Development](#development)
+
+---
 
 ## Installation
+
+### From PyPI (recommended)
 
 ```bash
 pip install neoskills
@@ -24,177 +35,275 @@ pip install neoskills
 Or with [uv](https://github.com/astral-sh/uv):
 
 ```bash
-uv add neoskills
+uv tool install neoskills
 ```
+
+### From source
+
+```bash
+git clone https://github.com/neolaf2/neoskills
+cd neoskills
+uv sync --dev
+uv run neoskills --help
+```
+
+### Requirements
+
+- **Python 3.13+** (required)
+- **Git** (for tap operations)
+- **uv** (recommended for development)
+
+---
 
 ## Quick Start
 
 ```bash
-# Initialize workspace
+# 1. Initialize the workspace
 neoskills init
 
-# Add a tap (git-hosted skill repository)
+# 2. Add a tap (a git-hosted skill repository)
 neoskills tap https://github.com/your-org/my-skills
 
-# List and search skills across all taps
-neoskills list
-neoskills search "document processing"
+# 3. Browse and search
+neoskills list                          # all skills in your taps
+neoskills list --linked                 # what's deployed to your agent
+neoskills search "document processing"  # cross-tap search
 
-# Link a skill to your agent (creates symlink)
-neoskills link wechat-html-converter
-neoskills install kstar-loop   # one-step alias
+# 4. Deploy a skill to your agent
+neoskills install kstar-loop            # copies to tap + symlinks to agent
 
-# Check health
+# 5. Create your own skill
+neoskills create my-new-skill -d "What it does" --type task
+
+# 6. Check system health
 neoskills doctor
 ```
 
-## Architecture
+### What just happened?
+
+`neoskills init` created `~/.neoskills/` with a default tap. `install` found the skill in a tap and created a symlink into your agent's skill directory (e.g., `~/.claude/skills/`). Your agent can now use the skill. `create` scaffolded a new skill with `SKILL.md` + `ontology.yaml`.
+
+---
+
+## How It Works
+
+### Architecture
 
 ```
-~/.neoskills/
-├── config.yaml                  # Configuration (targets, taps, defaults)
-├── taps/                        # Git-cloned tap repositories
-│   ├── mySkills/                # Default tap
+~/.neoskills/                         # Workspace root
+├── config.yaml                       # Targets, taps, defaults
+├── taps/                             # Git-cloned skill repositories
+│   ├── mySkills/                     # Default tap
 │   │   └── skills/
-│   │       └── <skill_id>/
-│   │           ├── SKILL.md         # Skill definition (frontmatter + body)
-│   │           ├── ontology.yaml    # Ontology metadata (optional)
-│   │           ├── scripts/         # Executable code (optional)
-│   │           ├── references/      # Documentation (optional)
-│   │           └── assets/          # Media/templates (optional)
-│   └── <other-taps>/
-└── cache/                       # Temporary/backup storage
+│   │       └── <skill-id>/
+│   │           ├── SKILL.md          # Skill definition (frontmatter + body)
+│   │           ├── ontology.yaml     # Graph metadata (optional, recommended)
+│   │           ├── scripts/          # Executable code (optional)
+│   │           ├── references/       # Supporting docs (optional)
+│   │           └── assets/           # Media/templates (optional)
+│   └── <other-taps>/                 # Additional skill sources
+└── cache/                            # Backups and temp storage
 ```
 
-Skills are deployed to agents via per-skill symlinks:
+### Deployment model
+
+Skills are deployed to agents via **per-skill symlinks** (zero-copy, instantly reversible):
 
 ```
-~/.claude/skills/kstar-loop → ~/.neoskills/taps/mySkills/skills/kstar-loop
+~/.claude/skills/kstar-loop  -->  ~/.neoskills/taps/mySkills/skills/kstar-loop
 ```
 
-## Ontology Layer (v0.4)
+This means:
+- **One source of truth** in your tap (version controlled with git)
+- **Multiple agents** can link the same skill simultaneously
+- **No copying** -- changes to the tap are immediately reflected
+- **Reversible** -- `neoskills unlink` removes the symlink, nothing else
 
-The ontology layer adds a **property graph** over your skills — nodes (skills, domains, capabilities) and typed edges (requires, extends, composes, conflicts) — all stored as `ontology.yaml` sidecar files alongside SKILL.md. No external database required.
+### Skill anatomy
 
-### What it provides
+Every skill is a directory with at minimum a `SKILL.md`:
 
-**Discovery** — faceted search by domain, type, lifecycle state, tag, or free text:
+```yaml
+# SKILL.md frontmatter
+---
+name: my-skill
+description: "What this skill does"
+author: "Your Name"
+tags: [productivity, automation]
+targets: [claude-code]
+---
+
+# My Skill
+
+Instructions, prompts, and documentation that the agent will read.
+```
+
+Optionally, an `ontology.yaml` sidecar adds graph metadata (type, domain, lifecycle, edges, versioning). See [Ontology Layer](#ontology-layer).
+
+---
+
+## Ontology Layer
+
+The ontology adds a **property graph** over your skills -- nodes and typed edges stored as `ontology.yaml` sidecar files. No external database. The graph materializes from the filesystem at runtime.
+
+### Progressive enrichment
+
+Skills don't need full metadata on day one:
+
+| Level | What's present | How to get there |
+|-------|---------------|-----------------|
+| **L0 -- Bare** | SKILL.md only | Default for all existing skills |
+| **L1 -- Tagged** | + ontology.yaml with type, domain, tags | `neoskills ontology enrich <id>` |
+| **L2 -- Connected** | + edges (requires, extends, composes, conflicts) | Author declares relationships |
+| **L3 -- Governed** | + lifecycle state, version, capability manifest | Maintained over time |
+
+### Discovery
 
 ```bash
+# Faceted search
 neoskills ontology discover --domain agent-architecture --state operational
 neoskills ontology discover --type meta --text "compiler"
+
+# Load and inspect the full graph
+neoskills ontology load     # prints summary: skills, edges, domains
+neoskills ontology stats    # JSON statistics
 ```
 
-**Dependency analysis** — what a skill requires and what depends on it:
+### Dependencies
 
 ```bash
-neoskills ontology deps kstar-loop --transitive
-neoskills ontology rdeps kstar-planner --tree
+neoskills ontology deps kstar-loop --transitive    # what it requires
+neoskills ontology rdeps kstar-planner --tree       # what depends on it
+neoskills ontology add-edge skill-a skill-b -t requires
 ```
 
-**Lifecycle governance** — track skill maturity through a state machine (candidate → validated → operational → refined → deprecated → archived):
+Edge types: `requires`, `extends`, `composes_with`, `conflicts_with`, `supersedes`, `derived_from`.
+
+### Lifecycle
+
+Skills move through a state machine:
+
+```
+candidate --> validated --> operational --> refined --> deprecated --> archived
+```
 
 ```bash
-neoskills ontology lifecycle
-neoskills ontology transition my-skill validated --reason "Passed 5 test sessions"
+neoskills ontology lifecycle                                          # all skills by state
+neoskills ontology transition my-skill validated --reason "tested"    # change state
 ```
 
-**Composition** — compose skills into pipelines, ensembles, or selectors:
+### Composition
 
 ```bash
-neoskills ontology compose source-text-to-markdown research-md-to-latex --mode pipeline --name md-to-paper
+# Compose skills into a pipeline
+neoskills ontology compose source-text-to-markdown research-md-to-latex \
+  --mode pipeline --name md-to-paper
+
+# Plan a decomposition
+neoskills ontology split monolithic-skill sub-a sub-b sub-c
 ```
 
-**Versioning** — semver bumps with lineage tracking:
+### Versioning
 
 ```bash
-neoskills ontology version kstar-loop --bump minor
+neoskills ontology version kstar-loop --bump minor   # 0.1.0 -> 0.2.0
 ```
 
-**Graph visualization** — export as Mermaid, DOT, or JSON:
+### Visualization & export
 
 ```bash
 neoskills ontology graph kstar-loop --depth 2 --format mermaid
 neoskills ontology export --format json --output graph.json
+neoskills ontology export --format dot                              # Graphviz
 ```
 
-**Validation** — detect broken edges, dependency cycles, and asymmetric conflicts:
+### Validation
 
 ```bash
-neoskills ontology validate
+neoskills ontology validate   # broken edges, cycles, conflicts
 ```
 
-### Progressive enrichment
-
-Skills don't need full metadata on day one. The ontology recognizes four levels:
-
-| Level | What's present | How to get there |
-|-------|---------------|-----------------|
-| **L0 — Bare** | SKILL.md only | Default (all existing skills) |
-| **L1 — Tagged** | + ontology.yaml with type, domain, tags | `neoskills ontology enrich <id>` |
-| **L2 — Connected** | + explicit edges (requires, extends, ...) | Author declares relationships |
-| **L3 — Governed** | + lifecycle state, versioning, capability manifest | Author + system maintain |
+### Auto-enrichment
 
 ```bash
-# Preview what would be inferred for all L0 skills
-neoskills ontology enrich --all --level L1 --dry-run
-
-# Apply enrichment
-neoskills ontology enrich --all --level L1
+neoskills ontology enrich my-skill              # single skill, L0 -> L1
+neoskills ontology enrich --all --level L1 --dry-run   # preview batch
+neoskills ontology enrich --all --level L1             # apply batch
 ```
 
 ### Domain taxonomy
 
-Skills are classified into a two-level domain hierarchy: agent-architecture (kstar-cognitive, agent-lifecycle, agent-design, agent-memory), education (learning-runtime, curriculum, assessment), document-processing (conversion, academic, wechat, pipeline), business (bidding, planning, strategy), knowledge-work (finance, legal, marketing, sales, data-analysis, ...), and meta (skill-management, understanding, infrastructure).
+Skills are classified into a two-level hierarchy: agent-architecture, education, document-processing, business, knowledge-work, meta, and more. Domains are auto-inferred from skill names when possible.
 
-See [docs/ontology-design.md](docs/ontology-design.md) for the full design document including schema details, composition model, and implementation plan.
+See [docs/ontology-design.md](docs/ontology-design.md) for the full design document.
 
-## Targets
+---
 
-neoskills ships with built-in targets:
+## Agent Targets
 
-| Target | Agent | Skill Path |
+Built-in targets:
+
+| Target | Agent | Skill path |
 |--------|-------|-----------|
 | `claude-code` | Claude Code | `~/.claude/skills` |
 | `opencode` | OpenCode | `~/.config/opencode/skills` |
 
 Add custom targets:
+
 ```bash
-neoskills config set targets.my-server.skill_path /path/to/skills
+neoskills config set targets.my-agent.skill_path /path/to/skills
 ```
+
+---
+
+## Operating Modes
+
+1. **CLI** (default) -- `neoskills` runs as a standalone command-line tool
+2. **Agent-invoked tool** -- Claude Code or OpenCode calls neoskills programmatically
+3. **Embedded MCP plugin** -- neoskills runs inside Claude Code as an MCP server, exposing 12+ tools including ontology operations
+
+### Authentication (for Claude-powered features)
+
+neoskills resolves authentication automatically:
+1. **.env API key** -- loads from `./`, `.neoskills/`, or `~/.neoskills/.env`
+2. **SDK subscription reuse** -- works inside Claude Code/Desktop without a key
+3. **Disabled** -- non-LLM features work without any key (tap, link, list, ontology, etc.)
+
+---
 
 ## CLI Reference
 
-### Workspace & Config
+### Workspace
 
 | Command | Description |
 |---------|-------------|
 | `neoskills init` | Create `~/.neoskills/` workspace |
-| `neoskills config set\|get\|show` | Configuration management |
+| `neoskills config set\|get\|show` | Manage configuration |
 | `neoskills doctor` | Health check (symlinks, config, taps) |
+| `neoskills migrate` | Migrate from v0.2 structure to v0.3+ |
 
-### Tap Management
+### Taps
 
 | Command | Description |
 |---------|-------------|
 | `neoskills tap <url>` | Add a tap (git clone) |
 | `neoskills untap <name>` | Remove a tap |
-| `neoskills update [name]` | Git pull tap(s) |
-| `neoskills upgrade` | Update all taps |
+| `neoskills update [name]` | Pull latest from tap(s) |
+| `neoskills upgrade` | Update all taps + refresh links |
+| `neoskills push` | Commit and push tap to GitHub |
 
-### Skill Discovery & Deployment
+### Skills
 
 | Command | Description |
 |---------|-------------|
 | `neoskills list [--linked\|--available]` | List skills |
 | `neoskills search <query>` | Cross-tap search |
 | `neoskills info <skill_id>` | Detailed skill info |
-| `neoskills link <skill_id>` | Create symlink (tap → target) |
+| `neoskills create <skill_id>` | Scaffold new skill (SKILL.md + ontology.yaml) |
+| `neoskills install <skill_id>` | One-step deploy (copy + link) |
+| `neoskills uninstall <skill_id>` | Remove (unlink + optionally delete) |
+| `neoskills link <skill_id>` | Create symlink (tap -> target) |
 | `neoskills unlink <skill_id>` | Remove symlink |
-| `neoskills install <skill_id>` | One-step link |
-| `neoskills uninstall <skill_id>` | Remove installation |
-| `neoskills create <skill_id>` | Scaffold a new skill |
-| `neoskills push` | Deploy to agent targets |
 
 ### Ontology
 
@@ -202,69 +311,101 @@ neoskills config set targets.my-server.skill_path /path/to/skills
 |---------|-------------|
 | `neoskills ontology load` | Build graph, print summary |
 | `neoskills ontology stats` | Graph statistics (JSON) |
+| `neoskills ontology validate` | Check integrity |
 | `neoskills ontology discover` | Faceted search (--domain, --type, --state, --tag, --text) |
 | `neoskills ontology deps <id>` | Dependency tree |
-| `neoskills ontology rdeps <id>` | Reverse dependency tree |
+| `neoskills ontology rdeps <id>` | Reverse dependencies |
 | `neoskills ontology graph <id>` | Neighborhood graph (Mermaid/DOT/JSON) |
-| `neoskills ontology lifecycle` | Skills grouped by lifecycle state |
-| `neoskills ontology transition <id> <state>` | Change lifecycle state |
+| `neoskills ontology lifecycle` | Skills by lifecycle state |
+| `neoskills ontology transition <id> <state>` | Change state |
 | `neoskills ontology add-edge <src> <tgt> -t <type>` | Add relationship |
 | `neoskills ontology remove-edge <src> <tgt> -t <type>` | Remove relationship |
-| `neoskills ontology version <id> --bump minor` | Version bump |
-| `neoskills ontology compose <ids...> --mode pipeline` | Create composite skill |
-| `neoskills ontology split <id> <sub-names...>` | Decomposition plan |
+| `neoskills ontology version <id> --bump <level>` | Version bump (major/minor/patch) |
+| `neoskills ontology compose <ids...>` | Create composite skill |
+| `neoskills ontology split <id> <names...>` | Decomposition plan |
 | `neoskills ontology enrich [<id>\|--all]` | Auto-enrich metadata |
-| `neoskills ontology validate` | Check graph integrity |
-| `neoskills ontology export --format json` | Export full graph |
+| `neoskills ontology export --format <fmt>` | Export graph (json/mermaid/dot) |
+| `neoskills ontology conflicts` | Report conflict edges |
 
-### Enhancement & Advanced
+### Advanced
 
 | Command | Description |
 |---------|-------------|
-| `neoskills enhance audit\|normalize\|add-docs\|add-tests` | Claude-powered enhancement |
+| `neoskills enhance audit\|normalize\|add-docs\|add-tests` | Claude-powered skill enhancement |
 | `neoskills agent list\|run` | Autonomous agent operations |
-| `neoskills plugin create\|validate` | Plugin scaffolding/validation |
+| `neoskills plugin create\|validate` | Plugin scaffolding and validation |
 | `neoskills schedule daily` | Memory-enabled schedule planning |
 
-## Three Operating Modes
-
-1. **External Orchestrator** (default) — CLI runs independently, manages taps, links, and ontology
-2. **Agent-invoked Tool** — Claude Code or OpenCode calls neoskills as a tool
-3. **Embedded Plugin Mode** — neoskills runs as a Claude Code MCP plugin, exposing 12+ tools including ontology operations
-
-## Authentication
-
-neoskills resolves authentication automatically:
-
-1. **.env API key** — loads from `./`, `.neoskills/`, or `~/.neoskills/.env`
-2. **SDK subscription reuse** — works inside Claude Code/Desktop with no API key
-3. **Disabled** — non-LLM features still work (tap, link, list, ontology, etc.)
-
-## Documentation
-
-- [Ontology Design Document](docs/ontology-design.md) — full schema, graph engine, lifecycle state machine, composition model, and implementation plan
+---
 
 ## Development
 
+### Setup
+
 ```bash
-# Clone and install
 git clone https://github.com/neolaf2/neoskills
 cd neoskills
 uv sync --dev
-
-# Run tests
-uv run pytest -v
-
-# Lint
-uv run ruff check src/
-
-# Run locally
-uv run neoskills --help
 ```
+
+### Commands
+
+```bash
+uv run pytest -v              # run all tests (172 tests)
+uv run ruff check src/        # lint
+uv run neoskills --help        # run from source
+```
+
+### Project structure
+
+```
+src/neoskills/
+├── cli/              # Click CLI commands
+│   ├── main.py       # Entry point and command registry
+│   ├── create_cmd.py # Skill scaffolding
+│   ├── ontology_cmd.py # 17 ontology subcommands
+│   └── ...           # tap, link, list, doctor, etc.
+├── core/             # Cellar, config, checksum, frontmatter, linker
+├── ontology/         # Property graph layer (v0.4)
+│   ├── models.py     # Enums + dataclasses (SkillNode, OntologyEdge, etc.)
+│   ├── graph.py      # SkillGraph -- in-memory property graph
+│   ├── loader.py     # Filesystem -> graph
+│   ├── writer.py     # Graph -> filesystem (ontology.yaml)
+│   ├── engine.py     # High-level API (OntologyEngine)
+│   ├── taxonomy.py   # Domain taxonomy + inference
+│   ├── lifecycle.py  # State machine transitions
+│   ├── versioning.py # Semver operations
+│   ├── composition.py # Compose/decompose skills
+│   ├── export.py     # Mermaid, DOT, JSON, ASCII tree
+│   └── scaffold.py   # Template-based skill creation
+├── runtime/          # Agent runtime integrations
+│   └── claude/
+│       └── plugin.py # MCP plugin (12+ tools)
+└── __init__.py
+tests/
+├── unit/             # 172 tests across 12 test modules
+└── integration/      # End-to-end workflow tests
+docs/
+└── ontology-design.md  # Full ontology design document
+```
+
+### Release process
+
+```bash
+# 1. Bump version in pyproject.toml and src/neoskills/__init__.py
+# 2. Build and upload
+uv build
+uv run twine upload dist/*
+
+# 3. Verify
+pip install --upgrade neoskills && neoskills --version
+```
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT -- see [LICENSE](LICENSE)
 
 ## Author
 
